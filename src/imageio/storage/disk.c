@@ -50,6 +50,7 @@ typedef struct dt_imageio_disk_t
   char filename[1024];
   dt_variables_params_t *vp;
   gboolean overwrite;
+  gboolean overwrite_default; 
 }
 dt_imageio_disk_t;
 
@@ -59,6 +60,46 @@ name ()
 {
   return _("file on disk");
 }
+
+
+static void _preferences_closed_callback(gpointer instace,gpointer user_data) 
+{
+  dt_imageio_module_storage_t *self=(dt_imageio_module_storage_t *)user_data;
+  disk_t *d = (disk_t *)self->gui_data; 
+  gboolean overwrite_default = dt_conf_get_bool("plugins/imageio/storage/disk/overwrite_existing_files");
+
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(d->check_overwrite), overwrite_default);
+} 
+
+
+static void
+checkbutton_clicked (GtkWidget *widget, dt_imageio_module_storage_t *self)
+{
+  gint dlg_ret;  
+
+  gboolean overwrite_default = dt_conf_get_bool("plugins/imageio/storage/disk/overwrite_existing_files");
+  gboolean overwrite = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget));
+  if ( overwrite && !overwrite_default ) {
+    //show overwrite confirmation dialog
+    GtkWidget *window = dt_ui_main_window(darktable.gui->ui);
+    
+    GtkWidget *dlg_overwrite = gtk_message_dialog_new (GTK_WINDOW(window),
+                                   GTK_DIALOG_DESTROY_WITH_PARENT,
+                                   GTK_MESSAGE_WARNING,
+                                   GTK_BUTTONS_YES_NO,
+                                   _("You choose to overwrite existing file during export.\nAre you sure?"));
+    gtk_window_set_title(GTK_WINDOW (dlg_overwrite), _("overwrite existing files?"));
+    
+    dlg_ret = gtk_dialog_run (GTK_DIALOG (dlg_overwrite));
+    gtk_widget_destroy (dlg_overwrite);
+
+    // if result is BUTTON_NO uncheck 
+    if (dlg_ret == GTK_RESPONSE_NO) {
+      gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widget), FALSE);
+    }
+  }
+}
+
 
 static void
 button_clicked (GtkWidget *widget, dt_imageio_module_storage_t *self)
@@ -99,7 +140,6 @@ gui_init (dt_imageio_module_storage_t *self)
   GtkWidget *widget;
   GtkWidget *hbox;
   
-  printf("@@@@ gui_init\n");
   hbox = gtk_hbox_new(FALSE, 5);
   gtk_box_pack_start(GTK_BOX(self->widget), hbox, TRUE, TRUE, 0);
   widget = gtk_entry_new();
@@ -146,14 +186,19 @@ gui_init (dt_imageio_module_storage_t *self)
   gtk_box_pack_start(GTK_BOX(self->widget), widget, TRUE, FALSE, 0);
 
   d->check_overwrite = GTK_CHECK_BUTTON(widget);
-  // TODO: assign using global option
+  g_signal_connect(G_OBJECT(widget), "clicked", G_CALLBACK(checkbutton_clicked), self);
   gboolean overwrite = dt_conf_get_bool("plugins/imageio/storage/disk/overwrite_existing_files");
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widget), overwrite);
+  
+  /* lets signup for preference dialog closed signals */
+  dt_control_signal_connect(darktable.signals,DT_SIGNAL_PREFERENCES_DIALOG_CLOSED, 
+			    G_CALLBACK(_preferences_closed_callback), self);
 }
 
 void
 gui_cleanup (dt_imageio_module_storage_t *self)
 {
+  dt_control_signal_disconnect(darktable.signals,G_CALLBACK(_preferences_closed_callback),self);
   free(self->gui_data);
 }
 
@@ -179,7 +224,6 @@ store (dt_imageio_module_data_t *sdata, const int imgid, dt_imageio_module_forma
   // we're potentially called in parallel. have sequence number synchronized:
   dt_pthread_mutex_lock(&darktable.plugin_threadsafe);
   {
-
     
     // if filenamepattern is a directory just let att ${FILE_NAME} as default..
     if ( g_file_test(d->filename, G_FILE_TEST_EXISTS | G_FILE_TEST_IS_DIR) || ((d->filename+strlen(d->filename))[0]=='/' || (d->filename+strlen(d->filename))[0]=='\\') )
@@ -288,7 +332,7 @@ get_params(dt_imageio_module_storage_t *self, int* size)
   
   const gboolean check_overwrite = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g->check_overwrite));
   d->overwrite = check_overwrite;
-  //dt_conf_set_int("plugins/imageio/storage/disk/overwrite_existing_files", d->overwrite);
+  d->overwrite_default = dt_conf_get_bool("plugins/imageio/storage/disk/overwrite_existing_files");
   return d;
 }
 

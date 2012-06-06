@@ -71,6 +71,9 @@ typedef enum dt_signal_t
   /** \brief This signal is raised when collection query is changed */
   DT_SIGNAL_COLLECTION_CHANGED,
 
+  /** \brief This signal is raised when preferences dialog is closed */
+  DT_SIGNAL_PREFERENCES_DIALOG_CLOSED,
+
   /* do not touch !*/
   DT_SIGNAL_COUNT
 }
